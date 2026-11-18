@@ -15,11 +15,13 @@ const app = express();
 app.use(express.json());
 
 app.use(session({
-    secret: "my-project-secret-key",
+    secret: process.env.SESSION_SECRET || "development-only-secret",
     resave: false,
     saveUninitialized: false,
     cookie: {
         httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
         maxAge: 30 * 60 * 1000
     }
 }));
@@ -27,7 +29,6 @@ app.use(session({
 const MAX_ATTEMPTS = 3;
 const LOCK_TIME = 60 * 1000;
 
-// Save login history in MongoDB
 async function saveLoginHistory(email, status) {
     await LoginHistory.create({
         email: email,
@@ -35,7 +36,6 @@ async function saveLoginHistory(email, status) {
     });
 }
 
-// Protect dashboard page
 app.use((req, res, next) => {
     if (req.path === "/dashboard.html" && !req.session.userId) {
         return res.redirect("/login.html");
@@ -91,7 +91,6 @@ app.post("/register", async (req, res) => {
 
     } catch (error) {
         console.log(error.message);
-
         res.status(500).json({
             message: "Registration failed!"
         });
@@ -119,16 +118,13 @@ app.post("/login", async (req, res) => {
             });
         }
 
-        // Check whether account is locked
         if (user.accountStatus === "Account Locked") {
-
             if (user.lockUntil && Date.now() < user.lockUntil.getTime()) {
                 return res.status(403).json({
                     message: "Account Locked! Please try again after 1 minute."
                 });
             }
 
-            // Automatically unlock after one minute
             user.accountStatus = "Unlocked";
             user.failedAttempts = 0;
             user.lockUntil = null;
@@ -137,12 +133,10 @@ app.post("/login", async (req, res) => {
             await saveLoginHistory(email, "Unlocked");
         }
 
-        // Check password
         const match = await bcrypt.compare(password, user.password);
 
         if (!match) {
             user.failedAttempts++;
-
             user.accountStatus = "Failed Attempt";
 
             if (user.failedAttempts >= MAX_ATTEMPTS) {
@@ -165,13 +159,11 @@ app.post("/login", async (req, res) => {
             });
         }
 
-        // Successful login
         user.failedAttempts = 0;
         user.accountStatus = "Authenticated";
         user.lockUntil = null;
 
         await user.save();
-
         await saveLoginHistory(email, "Success");
 
         req.session.userId = user.email;
@@ -182,7 +174,6 @@ app.post("/login", async (req, res) => {
 
     } catch (error) {
         console.log(error.message);
-
         res.status(500).json({
             message: "Login failed!"
         });
@@ -257,10 +248,10 @@ mongoose.connect(process.env.MONGO_URI)
     .then(() => {
         console.log("MongoDB connected successfully!");
 
-        const PORT = 5000;
+        const PORT = process.env.PORT || 5000;
 
         app.listen(PORT, () => {
-            console.log(`Server running at http://localhost:${PORT}`);
+            console.log(`Server running on port ${PORT}`);
         });
     })
     .catch((error) => {
