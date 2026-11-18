@@ -12,8 +12,9 @@ const LoginHistory = require("./models/LoginHistory");
 
 const app = express();
 
-app.use(express.json());
+app.set("trust proxy", 1);
 
+app.use(express.json());
 app.use(session({
     secret: process.env.SESSION_SECRET || "development-only-secret",
     resave: false,
@@ -168,9 +169,18 @@ app.post("/login", async (req, res) => {
 
         req.session.userId = user.email;
 
-        res.json({
-            message: "Login successful!"
+req.session.save((err) => {
+    if (err) {
+        console.log("Session save error:", err);
+        return res.status(500).json({
+            message: "Session could not be saved!"
         });
+    }
+
+    res.json({
+        message: "Login successful!"
+    });
+});
 
     } catch (error) {
         console.log(error.message);
